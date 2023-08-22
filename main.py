@@ -1,5 +1,5 @@
-from Config import config, commands
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from Config import config, commands, bot_options
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
 import logging
 import traceback
@@ -49,8 +49,38 @@ class BotHandler:
 
 class Commands:
     def __init__(self):
+        self.MENU = 1
         self.PHOTO, self.CAPTION, self.URL = range(3)
         self.context = {}
+        self.userName = ''
+
+    def set_welcome_format(self, info):
+        try:
+            self.userName = info.message.chat.first_name
+        except:
+            pass
+        return f"Hi {self.userName}"
+
+    def start(self, bot: Bot, update):
+        start_text = self.set_welcome_format(update)
+
+        # keyboard = [
+        #     [InlineKeyboardButton("Option 1", callback_data='/ad')],
+        #     [InlineKeyboardButton("Option 2", callback_data='option2')],
+        #     [InlineKeyboardButton("Option 3", callback_data='option3')],
+        #     [InlineKeyboardButton("Option 4", callback_data='option4')]
+        # ]
+        # reply_markup = InlineKeyboardMarkup(keyboard)
+        # update.message.reply_text(start_text, reply_markup=reply_markup)
+
+        update.message.reply_text(start_text, reply_markup=ReplyKeyboardMarkup(bot_options, one_time_keyboard=True))
+        return self.MENU
+
+    def menu_selection(self, bot: Bot, update):
+        selected_option = update.message.text
+        # if selected_option == 'ساخت بنر':
+        #     self.make_ad(bot, update)
+        return ConversationHandler.END
 
     @staticmethod
     def help(bot, update):
@@ -75,11 +105,35 @@ class Commands:
         update.message.reply_text("Got it! Finally, send the URL for the hyperlink.")
         return self.URL
 
+    def choice_banner_frame(self, bot: Bot, update):
+        keyboard = [
+            [InlineKeyboardButton("TextLink1",
+                                  callback_data="Check out our awesome product!\n[Learn More](https://example.com)")],
+            [InlineKeyboardButton("TextLink2",
+                                  callback_data="Earn More", url=self.context['url'])]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text("Please choice the one of TextLinks", reply_markup=reply_markup)
+        self.context['text_link'] = update.callback_query.data
+        update.message.reply_text("please send your url:")
+        return self.URL
+
+    def button_click(self, update, context):
+        query = update.callback_query
+        option_text = query.data
+        query.answer(f"you are chose '{option_text}'option.")
+
+
+
     def get_url(self, bot: Bot, update):
         try:
             self.context['url'] = update.message.text
             # Create the ad banner with the collected information
             banner_object = self.create_banner()
+            if banner_object:
+                bot.send_photo(update.message.chat_id, photo=banner_object['photo'],
+                               caption=banner_object['caption'], reply_markup=banner_object['reply_markup'],
+                               parse_mode='Markdown', disable_web_page_preview=True)
             update.message.reply_photo(**banner_object)
         except:
             print(traceback.format_exc())
@@ -91,12 +145,13 @@ class Commands:
         photo = self.context['photo']
         caption = self.context['caption']
         url = self.context['url']
+        text_link = self.context['text_link']
 
         validator_object = UsefulMethod(url)
         if validator_object.input_validator(validator_type='url').get('status', 'false') == 'false':
             return {}
 
-        button = InlineKeyboardButton("Learn More", url=url)
+        button = InlineKeyboardButton(text_link, url=url)
         keyboard = [[button]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         return {"photo": photo, "caption": caption, "reply_markup": reply_markup}
@@ -129,6 +184,22 @@ class MakeBanner(Commands):
         return conversation_handler
 
 
+class MakeMenu(Commands):
+    def __init__(self, command_name='menu'):
+        super().__init__()
+        self.command = command_name
+
+    def menu_handler(self):
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler(self.command, self.start)],
+            states={
+                self.MENU: [MessageHandler(Filters.text, self.menu_selection)]
+            },
+            fallbacks=[]
+        )
+        return conv_handler
+
+
 class BotDispatcher(BotHandler, Commands):
 
     def __init__(self, log=False):
@@ -144,13 +215,15 @@ class BotDispatcher(BotHandler, Commands):
 
         try:
             commands_list = self.create_commands_tuple()
-            dp.add_handler(CommandHandler("start", self.start))
+            # dp.add_handler(CommandHandler("start", self.start))
 
             for this_c in commands_list:
                 dp.add_handler(CommandHandler(*this_c))
 
             conversation_handler = MakeBanner().banner_handler()
+            menu_handler = MakeMenu('start').menu_handler()
 
+            dp.add_handler(menu_handler)
             dp.add_handler(conversation_handler)
             dp.add_handler(MessageHandler(Filters.text, self.unknown_text))
             dp.add_handler(MessageHandler(Filters.command, self.unknown_command))
@@ -166,10 +239,10 @@ class BotDispatcher(BotHandler, Commands):
         finally:
             updater.stop()
 
-    def start(self, bot, update):
-        """Send a message when the command /start is issued."""
-        welcome_text = self.set_welcome_format(update)
-        update.message.reply_text(welcome_text)
+    # def start(self, bot, update):
+    #     """Send a message when the command /start is issued."""
+    #     welcome_text = self.set_welcome_format(update)
+    #     update.message.reply_text(welcome_text)
 
     @staticmethod
     def unknown_text(bot, update):
@@ -195,13 +268,6 @@ class BotDispatcher(BotHandler, Commands):
             except:
                 continue
         return result
-
-    def set_welcome_format(self, info):
-        try:
-            self.userName = info.message.chat.first_name
-        except:
-            pass
-        return f"Hi {self.userName}"
 
 
 if __name__ == '__main__':

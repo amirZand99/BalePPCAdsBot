@@ -3,4 +3,10 @@ config = {"token": "PTCwnHYYxgrfuKnbAQHXceUdV5zbev5wehYT8AXQ",
           "url": "https://tapi.bale.ai/",
           "file_url": "https://tapi.bale.ai/file/"}
 
-commands = ["help", "ارسال بنر",]
+commands = {
+    "help": None,
+    "get_photo": "Great! Now send the caption for the ad."
+}
+
+bot_options = [['ساخت بنر', 'تعرفه تبلیغات'],
+               ['درباره ما', 'پرداخت ها']]
