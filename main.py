@@ -1,9 +1,12 @@
-from Config import config, commands, bot_options
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
+from Config import config, commands
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackQueryHandler
 import logging
 import traceback
 import validators
+import re
+from json import loads, dumps
+import sqlite3
 
 
 class UsefulMethod:
@@ -46,6 +49,48 @@ class BotHandler:
         dp = updater.dispatcher
         return [updater, dp]
 
+class PaymentDatabase:
+    def __init__(self, db_name='payment_log.db'):
+        self.db_name = db_name
+        self.conn = sqlite3.connect(self.db_name)
+        self.cursor = self.conn.cursor()
+        self.create_table()
+
+    def create_table(self):
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS log (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER,
+                price REAL
+            )
+        ''')
+        self.conn.commit()
+
+    def insert_payment(self, user_id, price):
+        self.cursor.execute('INSERT INTO log (user_id, price) VALUES (?, ?)', (user_id, price))
+        self.conn.commit()
+
+    def get_all_payments(self):
+        self.cursor.execute('SELECT * FROM log')
+        return self.cursor.fetchall()
+
+    def close(self):
+        self.conn.close()
+
+#use PaymentDatabase class
+payment_db = PaymentDatabase()
+
+user_id = 12345
+price = 50.0
+
+payment_db.insert_payment(user_id, price)
+
+all_payments = payment_db.get_all_payments()
+for payment in all_payments:
+    print(f"ID: {payment[0]}, User ID: {payment[1]}, Price: {payment[2]}")
+
+payment_db.close()
+
 
 class Commands:
     def __init__(self):
@@ -62,6 +107,7 @@ class Commands:
         return f"Hi {self.userName}"
 
     def start(self, bot: Bot, update):
+        print(update)
         start_text = self.set_welcome_format(update)
 
         # keyboard = [
@@ -73,14 +119,25 @@ class Commands:
         # reply_markup = InlineKeyboardMarkup(keyboard)
         # update.message.reply_text(start_text, reply_markup=reply_markup)
 
-        update.message.reply_text(start_text, reply_markup=ReplyKeyboardMarkup(bot_options, one_time_keyboard=True))
-        return self.MENU
+        update.message.reply_text(start_text, reply_markup=ReplyKeyboardMarkup(self.get_bot_menu(),
+                                                                               one_time_keyboard=True))
+        # return self.MENU
+        return ConversationHandler.END
 
     def menu_selection(self, bot: Bot, update):
         selected_option = update.message.text
         # if selected_option == 'ساخت بنر':
         #     self.make_ad(bot, update)
         return ConversationHandler.END
+
+    def invoice(self, bot:Bot, update):
+        payment_id = "" #your payment_id
+        update.message.reply_text("در حال انتقال به صفحه پرداخت...")
+        admin_confirmation_message = "در انتظار تایید ادمین ..."
+        update.message.reply_text(admin_confirmation_message)
+
+
+
 
     @staticmethod
     def help(bot, update):
@@ -91,50 +148,41 @@ class Commands:
         update.message.reply_text(text)
 
     def get_photo(self, bot: Bot, update):
-
-        command_name = self.get_command_name(update)
-        command_text = commands.get(command_name, '')
-
+        # command_name = self.get_command_name(update)
+        # command_text = commands.get(command_name, '')
         self.context['photo'] = update.message.photo[-1].file_id
-        update.message.reply_text(command_text)
+        update.message.reply_text('2 - توضیحات مروبطه را وارد نمایید .')
         return self.CAPTION
 
     def get_caption(self, bot: Bot, update):
-        self.context['caption'] = "Check out our awesome product!\n[Learn More](https://example.com)"  # Markdown
-
-        update.message.reply_text("Got it! Finally, send the URL for the hyperlink.")
+        text = update.message.text
+        pattern = r"<<<(.*?)>>>"
+        matches = re.findall(pattern, text)
+        for this_m in matches:
+            text = text.replace(f"<<<{this_m}>>>", "")
+        for this_m in matches:
+            if ":" not in this_m:
+                continue
+            this_m = this_m.split(':')
+            text += f"\n [{this_m[0]}]({this_m[-1]})"
+        self.context['caption'] = text
+        update.message.reply_text("3 - لینک تبلیتان رو ارسال کنید .")
         return self.URL
-
-    def choice_banner_frame(self, bot: Bot, update):
-        keyboard = [
-            [InlineKeyboardButton("TextLink1",
-                                  callback_data="Check out our awesome product!\n[Learn More](https://example.com)")],
-            [InlineKeyboardButton("TextLink2",
-                                  callback_data="Earn More", url=self.context['url'])]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text("Please choice the one of TextLinks", reply_markup=reply_markup)
-        self.context['text_link'] = update.callback_query.data
-        update.message.reply_text("please send your url:")
-        return self.URL
-
-    def button_click(self, update, context):
-        query = update.callback_query
-        option_text = query.data
-        query.answer(f"you are chose '{option_text}'option.")
-
-
 
     def get_url(self, bot: Bot, update):
         try:
             self.context['url'] = update.message.text
             # Create the ad banner with the collected information
             banner_object = self.create_banner()
-            if banner_object:
-                bot.send_photo(update.message.chat_id, photo=banner_object['photo'],
-                               caption=banner_object['caption'], reply_markup=banner_object['reply_markup'],
-                               parse_mode='Markdown', disable_web_page_preview=True)
             update.message.reply_photo(**banner_object)
+            keyboard = [
+                [InlineKeyboardButton("تایید", callback_data='تعرفه تبلیغات')],
+                [InlineKeyboardButton("عدم تایید", callback_data='ساخت بنر')]
+                # [InlineKeyboardButton("Option 3", callback_data='option3')],
+                # [InlineKeyboardButton("Option 4", callback_data='option4')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            update.message.reply_text("بنر تبلیغاتی شما آماده است .", reply_markup=reply_markup)
         except:
             print(traceback.format_exc())
         finally:
@@ -145,35 +193,103 @@ class Commands:
         photo = self.context['photo']
         caption = self.context['caption']
         url = self.context['url']
-        text_link = self.context['text_link']
 
-        validator_object = UsefulMethod(url)
-        if validator_object.input_validator(validator_type='url').get('status', 'false') == 'false':
-            return {}
+        # validator_object = UsefulMethod(url)
+        # if validator_object.input_validator(validator_type='url').get('status', 'false') == 'false':
+        #     return {}
+        result = {"photo": photo, "caption": caption}
+        if url not in ('n', 'N', 'No'):
+            if "<<<" not in url or '>>>' not in url or ":" not in url:
+                url = ["فرمت لینک اشتباه است", ""]
+            else:
+                url = url.replace("<<<", '')
+                url = url.replace(">>>", '')
+                url = url.split(":")
 
-        button = InlineKeyboardButton(text_link, url=url)
-        keyboard = [[button]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        return {"photo": photo, "caption": caption, "reply_markup": reply_markup}
+            button = InlineKeyboardButton(*url)
+            keyboard = [[button]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            result.update({"reply_markup": reply_markup})
+        return result
 
     def make_ad(self, bot: Bot, update):
         """Send a message when the command /help is issued."""
-        update.message.reply_text(text="send a photo please")
+        help_text = """لطفا در ساخت بنر به موارد زیر دقت کنید:
+
+1 - کپشن مربوط به تبلیغ به صورت جداگانه از عکس از کاربر
+دریافت می‌گردد.
+
+2 - بنر شما می‌تواند شامل لینک متنی یا لینک شیشه‌ای باشد.
+
+3 - برای افزودن لینک متنی در کپشن با فرمت زیر وارد کنید.
+                                                                   <<<placeholder:link>>>
+
+4 - اطلاعات مربوط به لینک شیشه‌ای به صورت جداگانه در پایان 
+از شما دریافت می‌گردد(فرمت همانند لینک متنی) در صورت عدم نیاز، کافی است N را وارد نمایید.
+
+نمونه به صورت پایین 👇👇👇
+"""
+        step_text = """در صورت تمایل لطفا مراحل زیر را طی نمایید :
+1 - عکس موردنظرتان را ارسال نمایید .
+2 - توضیحات مروبطه را ارسال نمایید .
+3 - لینک تبلیغتان رو ارسال کنید .
+        """
+        update.message.reply_text(text=help_text)
+        self.create_sample_banner(bot)
+        banner_object = self.create_banner()
+        update.message.reply_photo(**banner_object)
+        update.message.reply_text(text=step_text)
         return self.PHOTO
 
     @staticmethod
     def get_command_name(update):
         return str(update.message.text).split('/')[-1]
 
+    @staticmethod
+    def get_bot_menu():
+        c_list, pairs = [], []
+
+        for k, v in commands.items():
+            if v and v.get('category', '') == 'menu':
+                c_list.append(v.get('name'))
+
+        if len(c_list) > 0:
+            for i in range(0, len(c_list), 2):
+                pair = [c_list[i], c_list[i + 1]] if i + 1 < len(c_list) else [c_list[i]]
+                pairs.append(pair)
+        return pairs
+
+    def create_sample_banner(self, bot):
+        info = bot.get_me()
+        bot_id = f"@{info.username}"
+        caption = "PPC (Pay-Per-Click) یک مدل تبلیغات آنلاین است که تبلیغ‌دهنده بر اساس تعداد کلیک‌های دریافتی پرداخت " \
+                  "می‌کند. این مدل به تبلیغ‌دهندگان امکان می‌دهد فقط برای نتایج مستقیم پرداخت کنند و هزینه‌های بیشتری " \
+                  "صرف تبلیغ‌های بدون بازده نخواهند کرد. استفاده از کلمات کلیدی و تحلیل دقیق در انتخاب مخاطبان هدف از " \
+                  "اهمیت بالایی برخوردار است. "
+        caption += '\n\n\n'
+        caption += f"[نمونه لینک متنی]({bot_id})"
+        self.context['caption'] = caption
+        image_path = r"/home/amir/Downloads/BaleBotImage.jpg"
+        self.context['photo'] = open(image_path, 'rb')
+        self.context['url'] = f"<<<نمونه لینک شیشه ای:{bot_id}>>>"
+
+    async def handle_callback(self, bot: Bot, update: Update):
+        query = update.callback_query
+
+        # CallbackQueries need to be answered, even if no notification to the user is needed
+        # Some clients may have trouble otherwise. See https://core.telegram.org/bots/api#callbackquery
+        await query.answer()
+
+        await query.edit_message_text(text=f"Selected option: {query.data}")
+
 
 class MakeBanner(Commands):
-    def __init__(self, command_name='ad'):
+    def __init__(self):
         super().__init__()
-        self.command = command_name
 
     def banner_handler(self):
         conversation_handler = ConversationHandler(
-            entry_points=[CommandHandler(self.command, self.make_ad)],
+            entry_points=[MessageHandler(Filters.regex("^(ساخت بنر)$"), self.make_ad)],
             states={
                 self.PHOTO: [MessageHandler(filters=Filters.photo, callback=self.get_photo)],
                 self.CAPTION: [MessageHandler(filters=Filters.text, callback=self.get_caption)],
@@ -215,15 +331,15 @@ class BotDispatcher(BotHandler, Commands):
 
         try:
             commands_list = self.create_commands_tuple()
-            # dp.add_handler(CommandHandler("start", self.start))
+            dp.add_handler(CommandHandler("start", self.start))
 
             for this_c in commands_list:
                 dp.add_handler(CommandHandler(*this_c))
 
             conversation_handler = MakeBanner().banner_handler()
-            menu_handler = MakeMenu('start').menu_handler()
-
-            dp.add_handler(menu_handler)
+            # menu_handler = MakeMenu('start').menu_handler()
+            dp.add_handler(CallbackQueryHandler(self.handle_callback))
+            # dp.add_handler(menu_handler)
             dp.add_handler(conversation_handler)
             dp.add_handler(MessageHandler(Filters.text, self.unknown_text))
             dp.add_handler(MessageHandler(Filters.command, self.unknown_command))
@@ -269,6 +385,20 @@ class BotDispatcher(BotHandler, Commands):
                 continue
         return result
 
+    # خواندن user_idهای ادمین از فایل و ذخیره آن‌ها در یک لیست
+    def load_admin_users(self, file_path = "admin_users.txt"):
+        admin_users = []
+        try:
+            with open(file_path, 'r') as file:
+                admin_users = [int(line.strip()) for line in file.readlines()]
+        except FileNotFoundError:
+            print("فایل مربوط به user_idهای ادمین یافت نشد.")
+        return admin_users
+    #
+    # # نام فایل مربوط به user_idهای ادمین
+    # admin_users_file = 'admin_users.txt'
+    # admin_users = load_admin_users(admin_users_file)
+    #
 
 if __name__ == '__main__':
     BotDispatcher(log=True).handler()
