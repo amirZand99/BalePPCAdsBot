@@ -137,8 +137,6 @@ class Commands:
         update.message.reply_text(admin_confirmation_message)
 
 
-
-
     @staticmethod
     def help(bot, update):
         """Send a message when the command /help is issued."""
@@ -240,6 +238,23 @@ class Commands:
         update.message.reply_photo(**banner_object)
         update.message.reply_text(text=step_text)
         return self.PHOTO
+
+    def about(self, bot: Bot, update):
+        about_taxt= """ربات تبلیغات کلیکی اردیمهر، با هدف تبلیغات
+ هدفمندتر در کانال های بله ایجاد شده و این
+ امکان را به شما میدهد تا کاربر هدف مورد نیاز
+ خود را با هزینه ی کمتر جذب کنید. در روش
+ تبلیغات کلیکی این ربات، پس از اینکه شما بنر
+ خود را در ربات ساخته و تعداد کلیک مورد نظر
+ خود را تعیین کردید، پرداخت خود را بوسیله ی بله
+ انجام داده و پس از تایید توسط کارشناس، بنر
+ شما در کانال های طرف قرارداد، درج میشود. لازم
+ به ذکر است در صورتی که بنر شما توسط
+ کارشناس تایید نشود، مبلغ به کیف پول بله شما
+ عودت داده خواهد شد.
+
+"""
+        update.message.reply_text(text=about_taxt)
 
     @staticmethod
     def get_command_name(update):
@@ -399,6 +414,67 @@ class BotDispatcher(BotHandler, Commands):
     # admin_users_file = 'admin_users.txt'
     # admin_users = load_admin_users(admin_users_file)
     #
+class PaymentBot:
+    def __init__(self, config):
+        self.bot = Bot(token=config["token"])
+        self.admin_chat_id = config["user_id"]
+
+    def send_payment_request(self, user_id, date, price, banner_url):
+        confirm_button = InlineKeyboardButton("تایید", callback_data="confirm_payment")
+        reject_button = InlineKeyboardButton("عدم تایید", callback_data="reject_payment")
+        keyboard = [[confirm_button, reject_button]]
+        keyboard_markup = InlineKeyboardMarkup(keyboard)
+
+        message_text = f"پرداخت جدید:\n"
+        message_text += f"User ID: {user_id}\n"
+        message_text += f"تاریخ: {date}\n"
+        message_text += f"مبلغ پرداخت: {price} تومان\n"
+        message_text += f"بنر ساخته شده: {banner_url}\n"
+        message_text += "لطفا تصمیم خود را انتخاب کنید:"
+
+        self.bot.send_message(chat_id=self.admin_chat_id, text=message_text, reply_markup=keyboard_markup)
+
+    def send_user_approved_message(self, user_id):
+        message_text = "پیام شما توسط کارشناس تایید شد."
+        self.bot.send_message(chat_id=user_id, text=message_text)
+
+    def send_user_rejected_message(self, user_id):
+        message_text = "متاسفانه پیام شما توسط کارشناس تایید نشد."
+        self.bot.send_message(chat_id=user_id, text=message_text)
+
+    def forward_banner_to_channels(self, user_id, banner_message_id, channel_ids):
+        # Forward the banner to each specified channel
+        for channel_id in channel_ids:
+            try:
+                self.bot.forward_message(chat_id=channel_id, from_chat_id=user_id, message_id=banner_message_id)
+            except Exception as e:
+                print(f"Error forwarding message to channel {channel_id}: {e}")
+
+
+    def handle_callback(self, bot: Bot, update: Update):
+        query = update.callback_query
+        query.answer()
+        if query.data == "confirm_payment":
+            # Get the user's chat ID and the banner's message ID
+            user_id = query.message.chat_id
+            banner_message_id = query.message.message_id
+
+            # Forward the banner to specified channels
+            channel_ids = ["daniyal1706", "amir_13801022                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 for "
+                                          ""]  # Replace with your channel chat IDs
+            self.forward_banner_to_channels(user_id, banner_message_id, channel_ids)
+
+            # Send user-approved message
+            self.send_user_approved_message(user_id)
+        elif query.data == "reject_payment":
+            # اقدامات مرتبط با عدم تایید پرداخت
+            user_id = query.message.chat_id  # Get the user's chat ID
+            self.send_user_rejected_message(user_id)
+
+    def start_bot(self):
+        self.bot.send_message(chat_id=self.admin_chat_id, text="Bot has started!")
+        self.bot.add_handler(CallbackQueryHandler(self.handle_callback))
+        # دیگر افزودن هندلرها و تنظیمات مورد نیاز
 
 if __name__ == '__main__':
     BotDispatcher(log=True).handler()

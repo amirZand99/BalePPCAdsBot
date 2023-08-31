@@ -7,7 +7,7 @@ commands = {
     "help": None,
     "ad": {"name": "ساخت بنر", 'text': '', "category": "menu"},
     "cost": {"name": 'تعرفه تبلیغات', 'text': '', "category": "menu"},
-    "about": {'name': 'درباره ما', "text": "", "category": "menu"},
+    "about": {"name": "درباره ما", "text": "", "category": "ad"},
     "history": {"name": 'پرداخت ها', "text": "", "category": "menu"},
     "make_ad": {"name": 'Make Advertise', "text": "", "category": "ad"},
     "get_photo": {"name": 'photo', "text": "", "category": "ad"},
